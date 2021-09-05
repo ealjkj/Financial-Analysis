@@ -40,6 +40,7 @@ class Grid():
             elif self.grid_type == 'earnings':
               self.temp_values[y_interval, x_interval] = np.array([0,-label])
         except:
+          pass
           if debug:
             print(f'--There is a problem at the {i,f_i} iteration',y_interval, x_interval)
             print(max_h, min_h, max_h-min_h, (max_h-min_h)/self.height, h_step, w_step)
@@ -84,7 +85,31 @@ class Grid():
       self.train_traces.append((y,label))
       temp_grid.feed_one_trace(x,y,label,max_h = self.max_h, min_h = self.min_h, max_w = self.max_w, eliminate_noise_thold=eliminate_noise_thold, debug = debug)
       self.temp_values+=temp_grid.temp_values
-  
+
+  def fit(self, X,y, eliminate_noise_thold=0):
+    padding = 0.05
+    self.temp_values = np.ones((self.height,self.width, 2))*self.epsilon
+    self.labeled_train_traces = list(zip(X,y))
+    # Mins and max
+    self.max_h = max([max(trace) for trace in X])+padding
+    self.min_h = min([min(trace) for trace in X]) -padding
+    self.min_w = 0
+    self.max_w = self.trace_size
+    
+
+    for trace, label in zip(X,y):
+      x = np.linspace(0,self.trace_size-1,len(trace))
+      temp_grid = Grid(self.height, self.width, self.trace_size, grid_type=self.grid_type)
+      temp_grid.feed_one_trace(x,y,label,max_h = self.max_h, min_h = self.min_h, max_w = self.max_w, eliminate_noise_thold=eliminate_noise_thold)
+      self.temp_values+=temp_grid.temp_values
+      
+      
+      
+
+                     
+        
+    
+    
   def make_operation(self):
     self.values = self.temp_values[:,:,0]-self.temp_values[:,:,1]
 
