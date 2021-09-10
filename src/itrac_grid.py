@@ -41,15 +41,15 @@ class Grid():
               self.temp_values[y_interval, x_interval] = np.array([0,-label])
         except:
           pass
-          if debug:
-            print(f'--There is a problem at the {i,f_i} iteration',y_interval, x_interval)
+          if True:
+            print(f'--There is a problem at the {i,f_i} iteration1 | ',y_interval, x_interval)
             print(max_h, min_h, max_h-min_h, (max_h-min_h)/self.height, h_step, w_step)
-          else:
-            print('There is a problem. Please activate the debug parameter to know why')
-            break
-            break
-        else:
-          pass
+#           else:
+#             print('There is a problem. Please activate the debug parameter to know why')
+#             break
+#             break
+#         else:
+#           pass
   def pre_train(self, close, eliminate_noise_thold, debug = False):
     self.train_vector = close
     num_of_traces_grid = len(close)-self.trace_size
@@ -89,7 +89,7 @@ class Grid():
   def fit(self, X,y, eliminate_noise_thold=0):
     padding = 0.05
     self.temp_values = np.ones((self.height,self.width, 2))*self.epsilon
-    self.labeled_train_traces = list(zip(X,y))
+    self.train_traces = list(zip(X,y))
     # Mins and max
     self.max_h = max([max(trace) for trace in X])+padding
     self.min_h = min([min(trace) for trace in X]) -padding
@@ -100,8 +100,10 @@ class Grid():
     for trace, label in zip(X,y):
       x = np.linspace(0,self.trace_size-1,len(trace))
       temp_grid = Grid(self.height, self.width, self.trace_size, grid_type=self.grid_type)
-      temp_grid.feed_one_trace(x,y,label,max_h = self.max_h, min_h = self.min_h, max_w = self.max_w, eliminate_noise_thold=eliminate_noise_thold)
+      temp_grid.feed_one_trace(x,trace,label,max_h = self.max_h, min_h = self.min_h, max_w = self.max_w, eliminate_noise_thold=eliminate_noise_thold)
       self.temp_values+=temp_grid.temp_values
+      
+    self.make_operation()
       
       
       
@@ -172,8 +174,11 @@ class Grid():
         score += self.values[y_interval, x_interval]
       except:
         out_of_limits_counter+=1
+#         print(f'values = {self.values}')
+        # print(f'{y_interval} should be between  {0} and {self.height:.2f} \n{x_interval} should be between {0} and {self.width:.2f}\n' )
     if out_of_limits_counter > 0:
-      print(out_of_limits_counter, 'values were ignored')
+      pass
+#       print(out_of_limits_counter, 'values were ignored')
 
       
     return score
@@ -212,7 +217,8 @@ class Grid():
 
   def get_mean(self):
     if self.mean is None or True:
-      scores = np.array(self.predictions_from_ltraces(self.train_traces))[:,0]
+      scores = np.array(self.predictions_from_ltraces(self.train_traces))
+      scores = scores[:,0]
       self.mean = np.mean(scores)
     return self.mean
 
@@ -237,7 +243,49 @@ class Grid():
     elif score <= down_thold:
       ans = 'sell'
     return ans
+
+  def get_metrics(self, X, y, alpha_plus, alpha_minus):
+    metrics, scores, pos = {}, [], []
+    metrics['mean'] = self.get_mean()
+    metrics['std'] = self.get_std()
+    metrics['up_thold'] = metrics['mean'] + alpha_plus*metrics['std']
+    metrics['down_thold'] = metrics['mean'] -alpha_minus*metrics['std']
+    
+    for trace, label in zip(X,y):
+      x = np.linspace(0,self.max_w-1,len(trace))
+      scores.append(self.evaluate(x,trace))
+      pos.append(label>0)
       
+    scores, pos = np.array(scores), np.array(pos)
+    mask0 = pos == 0
+    mask1 = pos == 1
+
+    red = scores[mask0]
+    green = scores[mask1]
+    
+    correct_red = sum(red < metrics['down_thold'])
+    incorrect_red = sum(red > metrics['up_thold'])
+    correct_green = sum(green > metrics['up_thold'])
+    incorrect_green = sum(green < metrics['down_thold'])
+    number_of_predictions = correct_green+correct_red + incorrect_red + incorrect_green
+    total = len(green) + len(red)
+    
+#     print(f'number of predictions: {number_of_predictions}, correct_red: {correct_red}, correct green: {correct_green}, incorrect red {incorrect_red}, incorrect green: {incorrect_green}, total: {total}')
+    metrics['accuracy'] = 100*(correct_red + correct_green)/number_of_predictions
+
+    metrics['acc_above'] = 100*correct_green/(correct_green + incorrect_red)
+    metrics['acc_below'] = 100*correct_red/(correct_red + incorrect_green)
+    metrics['part_above'] = 100*(incorrect_red + correct_green)/total
+    metrics['part_below'] = 100*(incorrect_green + correct_red)/total
+    metrics['participation'] = 100*number_of_predictions/total
+    metrics['criteria'] = (2*0.01*metrics['accuracy'] - 1)*0.01*metrics['participation']
+    metrics['criteria2'] = (2*0.01*metrics['accuracy'] - 1)*min(1,5*0.01*metrics['participation'])
+    metrics['criteria_above'] = (2*0.01*metrics['acc_above'] - 1)*0.01*metrics['part_above']
+    metrics['criteria2_above'] = (2*0.01*metrics['acc_above'] - 1)*min(1,5*0.01*metrics['part_above'])
+    metrics['criteria_below'] = (2*0.01*metrics['acc_below'] - 1)*0.01*metrics['part_below']
+    metrics['criteria2_below'] = (2*0.01*metrics['acc_below'] - 1)*min(1,5*0.01*metrics['part_below'])
+    return metrics
+
 
 class ProportionGrid(Grid):
   def __init__(self, height, width, trace_size, grid_type = 'wins', operation_type = 'W/L', interpolation=False):

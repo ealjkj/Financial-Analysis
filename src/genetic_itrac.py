@@ -13,6 +13,9 @@ import hyperparameter_tuning_genetic_test
 import elitism
 import itrac_grid
 from alpha_vantage.timeseries import TimeSeries
+from utils import *
+from sklearn.model_selection import train_test_split
+from sklearn.model_selection import KFold
 
 # boundaries for itrac_training parameters:
 # "trace_size, width": 1 to 100
@@ -34,7 +37,7 @@ NUM_OF_PARAMS = len(BOUNDS_HIGH)
 POPULATION_SIZE = 30
 P_CROSSOVER = 0.9  # probability for crossover
 P_MUTATION = 0.5   # probability for mutating an individual
-MAX_GENERATIONS = 20
+MAX_GENERATIONS = 25
 HALL_OF_FAME_SIZE = 5
 CROWDING_FACTOR = 20.0  # crowding factor for crossover and mutation
 
@@ -104,15 +107,27 @@ def classificationAccuracy(individual):
     else:
         grid = itrac_grid.ProportionGrid(height, width, trace_size, operation_type=operation_type, grid_type=grid_type)
 
-    info = itrac_grid.performance_last_days(price_vector, 1000, grid, alpha_plus, alpha_minus, eliminate_noise_thold)
-    accuracy, participation, acc_above, part_above, acc_below, part_below = info
-    #criteria = min(5*0.01*part_below,1)*(2*0.01*acc_below-1)
-    criteria = min(5*0.01*part_above,1)*(2*0.01*acc_above-1)
-    #criteria = min(5*0.01*participation,1)*(2*0.01*accuracy-1)
-    if numpy.isnan(criteria):
-        criteria = -1
+    dataset = labeled_traces_from_array(all_days, trace_size)
 
-    return criteria,
+    X = np.array([trace for (trace, _) in dataset])
+    y = np.array([int(label >= 0) for (_, label) in dataset])
+    X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=23, test_size=0.2, stratify=y)
+
+    metric_sum = 0
+    for train_index, test_index in kf.split(X_train):
+        kX_train, kX_test = X_train[train_index], X_train[test_index]
+        ky_train, ky_test = y_train[train_index], y_train[test_index]
+        
+        grid.fit(kX_train, ky_train, eliminate_noise_thold=eliminate_noise_thold)
+        metric = grid.get_metrics(kX_test, ky_test, alpha_plus=alpha_plus, alpha_minus=alpha_minus)['criteria2']
+        metric_sum += metric
+        
+    average_metric = metric_sum/n_splits
+
+    if numpy.isnan(average_metric):
+        average_metric = -1
+
+    return average_metric,
 
 toolbox.register("evaluate", classificationAccuracy)
 
@@ -180,8 +195,29 @@ def main():
         else:
             grid = itrac_grid.ProportionGrid(height, width, trace_size, operation_type=operation_type, grid_type=grid_type)
 
+        dataset = labeled_traces_from_array(all_days, trace_size)
+
+        X = np.array([trace for (trace, _) in dataset])
+        y = np.array([int(label >= 0) for (_, label) in dataset])
+        X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=23, test_size=0.2, stratify=y)
+
+        metric_sum = 0
+        for train_index, test_index in kf.split(X_train):
+            kX_train, kX_test = X_train[train_index], X_train[test_index]
+            ky_train, ky_test = y_train[train_index], y_train[test_index]
+            
+            grid.fit(kX_train, ky_train, eliminate_noise_thold=eliminate_noise_thold)
+            metric = grid.get_metrics(kX_test, ky_test, alpha_plus=alpha_plus, alpha_minus=alpha_minus)['criteria2']
+            metric_sum += metric
+        
+        average_metric = metric_sum/n_splits
+
+        price_vector = close
         info = itrac_grid.performance_last_days(price_vector, 1000, grid, alpha_plus, alpha_minus, eliminate_noise_thold)
+        print(f"avarege_metric = {average_metric}")
         print("accuracy = {}, participation = {}, acc_above = {}, part_above = {}, acc_below = {}, part_below = {}".format(*info))
+        criteria2 = min(1, 0.01*info[1])*(2*info[0]*0.01-1)
+        print(f"criteria 2 {criteria2}")
 
     printInfo(hof.items[0])
 
@@ -205,7 +241,13 @@ if __name__ == "__main__":
     ts = TimeSeries(key=API_KEY, output_format='pandas')
     data, meta_data = ts.get_daily(symbol=stock, outputsize='full')
     close = data['4. close'].to_numpy()
-    price_vector = close[365:]
+    all_days = data['4. close'][365:]
+
+
+    
+
+    n_splits = 4
+    kf = KFold(n_splits=n_splits)
 
 
     main()
