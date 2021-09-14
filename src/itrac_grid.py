@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 from PIL import Image, ImageOps
 import seaborn as sns
 from scipy import interpolate
+from utils import labeled_traces_from_array
 
 class Grid():
   def __init__(self, height, width, trace_size, grid_type = 'wins', interpolation=False):
@@ -271,10 +272,9 @@ class Grid():
     total = len(green) + len(red)
     
 #     print(f'number of predictions: {number_of_predictions}, correct_red: {correct_red}, correct green: {correct_green}, incorrect red {incorrect_red}, incorrect green: {incorrect_green}, total: {total}')
-    metrics['accuracy'] = 100*(correct_red + correct_green)/number_of_predictions
-
-    metrics['acc_above'] = 100*correct_green/(correct_green + incorrect_red)
-    metrics['acc_below'] = 100*correct_red/(correct_red + incorrect_green)
+    metrics['accuracy'] = 100*(correct_red + correct_green)/number_of_predictions if number_of_predictions != 0 else 0
+    metrics['acc_above'] = 100*correct_green/(correct_green + incorrect_red) if correct_green + incorrect_red != 0 else 0
+    metrics['acc_below'] = 100*correct_red/(correct_red + incorrect_green) if correct_red + incorrect_green != 0 else 0
     metrics['part_above'] = 100*(incorrect_red + correct_green)/total
     metrics['part_below'] = 100*(incorrect_green + correct_red)/total
     metrics['participation'] = 100*number_of_predictions/total
@@ -460,19 +460,23 @@ def performance_data(pred, mean, std, alpha_plus, alpha_minus):
 
   #metrics
   number_of_predictions = correct_green+correct_red + incorrect_red + incorrect_green
-  acc = 100*(correct_red + correct_green)/number_of_predictions
+  acc = 100*(correct_red + correct_green)/number_of_predictions if number_of_predictions != 0 else 0
   total = len(green) + len(red)
-  acc_above = 100*correct_green/(correct_green + incorrect_red)
-  acc_below = 100*correct_red/(correct_red + incorrect_green)
+  acc_above = 100*correct_green/(correct_green + incorrect_red) if correct_green + incorrect_red != 0 else 0
+  acc_below = 100*correct_red/(correct_red + incorrect_green) if correct_red + incorrect_green != 0 else 0
   part_above = 100*(incorrect_red + correct_green)/total
   part_below = 100*(incorrect_green + correct_red)/total
   part = 100*number_of_predictions/total
 
   return [acc, part, acc_above, part_above, acc_below, part_below]
 
-def performance_last_days(price_vector, last_n_days, grid, alpha_plus, alpha_minus, eliminate_noise_thold=0):
-  grid.train(price_vector[last_n_days:], eliminate_noise_thold=eliminate_noise_thold)
-  number_of_samples = len(grid.train_vector)
+def performance_last_days(price_vector, last_n_days, grid, alpha_plus, alpha_minus, eliminate_noise_thold=0, operator= lambda x: x):
+  dataset = labeled_traces_from_array(price_vector, grid.trace_size, operator=operator)
+  X = np.array([trace for (trace, _) in dataset])
+  y = np.array([int(label >= 0) for (_, label) in dataset])
+  grid.fit(X[last_n_days:], y[:last_n_days], eliminate_noise_thold=eliminate_noise_thold)
+
+  # grid.train(price_vector[last_n_days:], eliminate_noise_thold=eliminate_noise_thold)
   mean = grid.get_mean()
   std = grid.get_std()
 
@@ -485,10 +489,8 @@ def performance_last_days(price_vector, last_n_days, grid, alpha_plus, alpha_min
   down_tholds = np.zeros(last_n_days)
 
   for i in range(last_n_days):
-    trace = price_vector[last_n_days-i: last_n_days-i+grid.trace_size]
-    #print('debug', i, trace, price_vector[last_n_days-i-1])
-    trace = np.flip(trace,0) # The first element on data is the last day. We have to flip the array
-    trace, label = trace/trace[-1]-1, price_vector[last_n_days-i-1]/trace[-1]-1
+    trace = X[last_n_days-i]
+    label = y[[last_n_days-i]]
     x = np.linspace(0,grid.max_w-1,len(trace))
 
     #Save results
@@ -514,10 +516,10 @@ def performance_last_days(price_vector, last_n_days, grid, alpha_plus, alpha_min
 
   #metrics
   number_of_predictions = correct_green+correct_red + incorrect_red + incorrect_green
-  acc = 100*(correct_red + correct_green)/number_of_predictions
+  acc = 100*(correct_red + correct_green)/number_of_predictions if number_of_predictions != 0 else 0
   total = len(green) + len(red)
-  acc_above = 100*correct_green/(correct_green + incorrect_red)
-  acc_below = 100*correct_red/(correct_red + incorrect_green)
+  acc_above = 100*correct_green/(correct_green + incorrect_red) if correct_green + incorrect_red != 0 else 0
+  acc_below = 100*correct_red/(correct_red + incorrect_green) if correct_red + incorrect_green != 0 else 0
   part_above = 100*(incorrect_red + correct_green)/total
   part_below = 100*(incorrect_green + correct_red)/total
   part = 100*number_of_predictions/total

@@ -22,13 +22,17 @@ def history(price_vector):
 def get_returns(price_vector):
     return price_vector[:-1]/price_vector[1:]
 
-def labeled_traces_from_array(price_vector, trace_size):
+def labeled_traces_from_array(price_vector, trace_size, operator= lambda x: x):
     num_of_traces = len(price_vector)-trace_size
     labeled_traces = []
     for idx in range(1,num_of_traces+1):
         y = price_vector[idx:trace_size+idx]
         y = np.flip(y,0) # The first element on data is the last day. We have to flip the array
-        y, label = y/y[-1]-1, price_vector[idx-1]/y[-1]-1
+        # print('before normalization', y)
+        # print('price_vector', price_vector[idx-1])
+        # print('ratio-1', price_vector[idx-1]/y[-1]-1)
+        y, label = operator(y)/operator(y[-1])-1, price_vector[idx-1]/y[-1]-1
+        # print('After normalization', y)
         x = np.linspace(0,trace_size,len(y)) 
         labeled_traces.append([y, label])
     return labeled_traces

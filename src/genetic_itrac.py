@@ -37,12 +37,13 @@ NUM_OF_PARAMS = len(BOUNDS_HIGH)
 POPULATION_SIZE = 30
 P_CROSSOVER = 0.9  # probability for crossover
 P_MUTATION = 0.5   # probability for mutating an individual
-MAX_GENERATIONS = 25
+MAX_GENERATIONS = 20
 HALL_OF_FAME_SIZE = 5
 CROWDING_FACTOR = 20.0  # crowding factor for crossover and mutation
-
-
-
+METRIC_TO_OPTIMIZE = 'criteria2_above'
+OPERATOR = np.tan
+print('-'*100)
+print('OPERATOR:', OPERATOR)
 toolbox = base.Toolbox()
 
 # define a single objective, maximizing fitness strategy:
@@ -107,7 +108,7 @@ def classificationAccuracy(individual):
     else:
         grid = itrac_grid.ProportionGrid(height, width, trace_size, operation_type=operation_type, grid_type=grid_type)
 
-    dataset = labeled_traces_from_array(all_days, trace_size)
+    dataset = labeled_traces_from_array(all_days, trace_size, operator=OPERATOR)
 
     X = np.array([trace for (trace, _) in dataset])
     y = np.array([int(label >= 0) for (_, label) in dataset])
@@ -119,7 +120,7 @@ def classificationAccuracy(individual):
         ky_train, ky_test = y_train[train_index], y_train[test_index]
         
         grid.fit(kX_train, ky_train, eliminate_noise_thold=eliminate_noise_thold)
-        metric = grid.get_metrics(kX_test, ky_test, alpha_plus=alpha_plus, alpha_minus=alpha_minus)['criteria2']
+        metric = grid.get_metrics(kX_test, ky_test, alpha_plus=alpha_plus, alpha_minus=alpha_minus)[METRIC_TO_OPTIMIZE]
         metric_sum += metric
         
     average_metric = metric_sum/n_splits
@@ -195,29 +196,13 @@ def main():
         else:
             grid = itrac_grid.ProportionGrid(height, width, trace_size, operation_type=operation_type, grid_type=grid_type)
 
-        dataset = labeled_traces_from_array(all_days, trace_size)
-
-        X = np.array([trace for (trace, _) in dataset])
-        y = np.array([int(label >= 0) for (_, label) in dataset])
-        X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=23, test_size=0.2, stratify=y)
-
-        metric_sum = 0
-        for train_index, test_index in kf.split(X_train):
-            kX_train, kX_test = X_train[train_index], X_train[test_index]
-            ky_train, ky_test = y_train[train_index], y_train[test_index]
-            
-            grid.fit(kX_train, ky_train, eliminate_noise_thold=eliminate_noise_thold)
-            metric = grid.get_metrics(kX_test, ky_test, alpha_plus=alpha_plus, alpha_minus=alpha_minus)['criteria2']
-            metric_sum += metric
-        
-        average_metric = metric_sum/n_splits
-
         price_vector = close
-        info = itrac_grid.performance_last_days(price_vector, 1000, grid, alpha_plus, alpha_minus, eliminate_noise_thold)
-        print(f"avarege_metric = {average_metric}")
+        info = itrac_grid.performance_last_days(price_vector, 365, grid, alpha_plus, alpha_minus, eliminate_noise_thold)
+        print('-'*80)
+        print('Last 365 days report')
         print("accuracy = {}, participation = {}, acc_above = {}, part_above = {}, acc_below = {}, part_below = {}".format(*info))
-        criteria2 = min(1, 0.01*info[1])*(2*info[0]*0.01-1)
-        print(f"criteria 2 {criteria2}")
+        criteria2 = min(1, 0.01*info[1]*5)*(2*info[0]*0.01-1)
+        print(f"criteria2 = {criteria2}")
 
     printInfo(hof.items[0])
 
@@ -234,6 +219,7 @@ def main():
     plt.savefig('generations_performance_plot.png')
     plt.show()
 
+    return hof
 
 if __name__ == "__main__":
     API_KEY = 'MDT9LRDR9TIZGJLH'
@@ -241,7 +227,7 @@ if __name__ == "__main__":
     ts = TimeSeries(key=API_KEY, output_format='pandas')
     data, meta_data = ts.get_daily(symbol=stock, outputsize='full')
     close = data['4. close'].to_numpy()
-    all_days = data['4. close'][365:]
+    all_days = close[365:]
 
 
     
@@ -250,4 +236,4 @@ if __name__ == "__main__":
     kf = KFold(n_splits=n_splits)
 
 
-    main()
+    hof = main()
