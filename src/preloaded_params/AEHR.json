@@ -1,0 +1,17 @@
+{
+    "trace_size": 99,
+    "height": 2,
+    "width": 99,
+    "grid_type": "earnings",
+    "operation_type": "W/T",
+    "alpha_plus": 0.960932683288549,
+    "alpha_minus": 0.7347270605661465,
+    "eliminate_noise_thold": 0.07380497255853302,
+    "test_accuracy": 52.472527472527474,
+    "test_participation": 99.72602739726027,
+    "test_acc_above": 52.394366197183096,
+    "test_part_above": 97.26027397260275,
+    "test_acc_below": 55.55555555555556,
+    "test_part_below": 2.4657534246575343,
+    "val_criteria10_below": 0.12164502164502168
+}

@@ -7,6 +7,8 @@ from PIL import Image, ImageOps
 import seaborn as sns
 from scipy import interpolate
 from utils import labeled_traces_from_array
+import yfinance as yf
+from time import sleep
 
 class Grid():
   def __init__(self, height, width, trace_size, grid_type = 'wins', interpolation=False):
@@ -43,14 +45,13 @@ class Grid():
         except:
           pass
           if True:
-            print(f'--There is a problem at the {i,f_i} iteration1 | ',y_interval, x_interval)
-            print(max_h, min_h, max_h-min_h, (max_h-min_h)/self.height, h_step, w_step)
-#           else:
-#             print('There is a problem. Please activate the debug parameter to know why')
-#             break
-#             break
-#         else:
-#           pass
+            print(f'--There is a problem at the {i,f_i} iteration')
+            print(f' {y_interval} should be between 0 and {self.height}')
+            print(f' {x_interval} should be between 0 and {self.width}')
+            print(f' max_w={max_w}, width={self.width}, trace_size={self.trace_size}')
+            
+            print(f'some info: max_w={max_w}, min_w={min_w},x= {x}, i-min_w = {i-min_w}, h_step={h_step}, w_step={w_step}')
+
   def pre_train(self, close, eliminate_noise_thold, debug = False):
     self.train_vector = close
     num_of_traces_grid = len(close)-self.trace_size
@@ -83,7 +84,7 @@ class Grid():
         y = interpolate.splev(x,splines)
 
       
-      self.train_traces.append((y,label))
+      self.train_traces.append((y,label)) 
       temp_grid.feed_one_trace(x,y,label,max_h = self.max_h, min_h = self.min_h, max_w = self.max_w, eliminate_noise_thold=eliminate_noise_thold, debug = debug)
       self.temp_values+=temp_grid.temp_values
 
@@ -91,6 +92,7 @@ class Grid():
     padding = 0.05
     self.temp_values = np.ones((self.height,self.width, 2))*self.epsilon
     self.train_traces = list(zip(X,y))
+    temp_grid = Grid(self.height, self.width, self.trace_size, grid_type=self.grid_type)
     # Mins and max
     self.max_h = max([max(trace) for trace in X])+padding
     self.min_h = min([min(trace) for trace in X]) -padding
@@ -100,7 +102,7 @@ class Grid():
 
     for trace, label in zip(X,y):
       x = np.linspace(0,self.trace_size-1,len(trace))
-      temp_grid = Grid(self.height, self.width, self.trace_size, grid_type=self.grid_type)
+      # temp_grid = Grid(self.height, self.width, self.trace_size, grid_type=self.grid_type)
       temp_grid.feed_one_trace(x,trace,label,max_h = self.max_h, min_h = self.min_h, max_w = self.max_w, eliminate_noise_thold=eliminate_noise_thold)
       self.temp_values+=temp_grid.temp_values
       
@@ -279,11 +281,15 @@ class Grid():
     metrics['part_below'] = 100*(incorrect_green + correct_red)/total
     metrics['participation'] = 100*number_of_predictions/total
     metrics['criteria'] = (2*0.01*metrics['accuracy'] - 1)*0.01*metrics['participation']
-    metrics['criteria2'] = (2*0.01*metrics['accuracy'] - 1)*min(1,5*0.01*metrics['participation'])
+    metrics['criteria5'] = (2*0.01*metrics['accuracy'] - 1)*min(1,5*0.01*metrics['participation'])
     metrics['criteria_above'] = (2*0.01*metrics['acc_above'] - 1)*0.01*metrics['part_above']
-    metrics['criteria2_above'] = (2*0.01*metrics['acc_above'] - 1)*min(1,5*0.01*metrics['part_above'])
+    metrics['criteria5_above'] = (2*0.01*metrics['acc_above'] - 1)*min(1,5*0.01*metrics['part_above'])
     metrics['criteria_below'] = (2*0.01*metrics['acc_below'] - 1)*0.01*metrics['part_below']
-    metrics['criteria2_below'] = (2*0.01*metrics['acc_below'] - 1)*min(1,5*0.01*metrics['part_below'])
+    metrics['criteria5_below'] = (2*0.01*metrics['acc_below'] - 1)*min(1,5*0.01*metrics['part_below'])
+    
+    metrics['criteria10'] = (2*0.01*metrics['accuracy'] - 1)*min(1,10*0.01*metrics['participation'])
+    metrics['criteria10_above'] = (2*0.01*metrics['acc_above'] - 1)*min(1,10*0.01*metrics['part_above'])
+    metrics['criteria10_below'] = (2*0.01*metrics['acc_below'] - 1)*min(1,10*0.01*metrics['acc_below'])
     return metrics
 
 
@@ -423,7 +429,6 @@ class CorrectGrid(Grid):
 
 def last_days_grid_info(price_vector, last_n_days, grid, eliminate_noise_thold=0):
   grid.train(price_vector[last_n_days:], eliminate_noise_thold=eliminate_noise_thold)
-  number_of_samples = len(grid.train_vector)
   mean = grid.get_mean()
   std = grid.get_std()
 
@@ -432,11 +437,10 @@ def last_days_grid_info(price_vector, last_n_days, grid, eliminate_noise_thold=0
   info = []
   for i in range(last_n_days):
     trace = price_vector[last_n_days-i: last_n_days-i+grid.trace_size]
-    #print('debug', i, trace, price_vector[last_n_days-i-1])
+    # print('debug', i, trace, price_vector[last_n_days-i-1])
     trace = np.flip(trace,0) # The first element on data is the last day. We have to flip the array
     trace, label = trace/trace[-1]-1, price_vector[last_n_days-i-1]/trace[-1]-1
     x = np.linspace(0,grid.max_w-1,len(trace))
-
     info.append((grid.evaluate(x,trace), i, label > 0))
     grid.update(x,trace, label)
 
@@ -473,9 +477,11 @@ def performance_data(pred, mean, std, alpha_plus, alpha_minus):
 def performance_last_days(price_vector, last_n_days, grid, alpha_plus, alpha_minus, eliminate_noise_thold=0, operator= lambda x: x):
   dataset = labeled_traces_from_array(price_vector, grid.trace_size, operator=operator)
   X = np.array([trace for (trace, _) in dataset])
-  y = np.array([int(label >= 0) for (_, label) in dataset])
-  grid.fit(X[last_n_days:], y[:last_n_days], eliminate_noise_thold=eliminate_noise_thold)
+  y = np.array([label for (_, label) in dataset])
 
+  grid.fit(X[last_n_days:], y[last_n_days:], eliminate_noise_thold=eliminate_noise_thold)
+
+  # print(X[:last_n_days])
   # grid.train(price_vector[last_n_days:], eliminate_noise_thold=eliminate_noise_thold)
   mean = grid.get_mean()
   std = grid.get_std()
@@ -485,20 +491,14 @@ def performance_last_days(price_vector, last_n_days, grid, alpha_plus, alpha_min
 
   #Initialize 
   info = []
-  up_tholds = np.zeros(last_n_days)
-  down_tholds = np.zeros(last_n_days)
 
   for i in range(last_n_days):
-    trace = X[last_n_days-i]
-    label = y[[last_n_days-i]]
+    trace = X[last_n_days-i-1]
+    label = y[last_n_days-i-1]
+
+    # print(trace[0], label)
     x = np.linspace(0,grid.max_w-1,len(trace))
-
-    #Save results
-    up_tholds[i] = mean + alpha_plus*std
-    down_tholds[i] = mean - alpha_minus*std
-
     info.append((grid.evaluate(x,trace), i, label > 0))
-
     grid.update(x,trace, label)
 
   pred = np.array(info)
@@ -524,6 +524,27 @@ def performance_last_days(price_vector, last_n_days, grid, alpha_plus, alpha_min
   part_below = 100*(incorrect_green + correct_red)/total
   part = 100*number_of_predictions/total
 
+  # print(green)
+  
+  # print('len(price_vector)', len(price_vector))
+  # print('last_n_days', last_n_days)
+  # print('len(green) = ', len(green))
+  # print('len(red) = ', len(red))
+  
+  
+  # print('up_thold = ', up_thold)
+  # print('down_thold = ', down_thold)
+
+  # print('correct red = ', correct_red)
+  # print('correct_green = ', correct_green)
+  # print('incorrect_red = ', incorrect_red )
+  # print('incorrect_green = ', incorrect_green )
+
+  # print('number of predictions = ', number_of_predictions)
+  # print('total of days = ', total)
+
+  
+
   #Plot
   #f = plt.figure()
   #f.set_figwidth(20)
@@ -540,3 +561,141 @@ def performance_last_days(price_vector, last_n_days, grid, alpha_plus, alpha_min
   
   return [acc, part, acc_above, part_above, acc_below, part_below]
   #return ([acc, part, acc_above, part_above, acc_below, part_below], [pred, up_thold, down_thold])
+
+
+  
+def performance_last_days_from_symbols(symbol_list, param_dict, last_n_days=365):
+  API_KEY = 'MDT9LRDR9TIZGJLH'
+  operator = lambda x: x
+  grid_dict = {}
+  price_vectors = {}
+  datasets = {}
+  Xs = {}
+  ys = {}
+  up_tholds = {}
+  down_tholds = {}
+  signal_counter = {}
+
+
+  symbol_counter = 0  
+  for symbol_key in symbol_list:
+    symbol_counter += 1
+    print(symbol_key)
+    height = param_dict[symbol_key]['height']
+    width = param_dict[symbol_key]['width']
+    trace_size = param_dict[symbol_key]['trace_size']
+    grid_type = param_dict[symbol_key]['grid_type']
+    operation_type = param_dict[symbol_key]['operation_type']
+    alpha_plus = param_dict[symbol_key]['alpha_plus']
+    alpha_minus = param_dict[symbol_key]['alpha_minus']
+    eliminate_noise_thold = param_dict[symbol_key]['eliminate_noise_thold']
+    
+    #initialize signal counter
+    signal_counter[symbol_key] = 0
+    
+    #make the grid using hyperparameters predefined
+    if operation_type =='W-L':
+        grid = Grid(height, width, trace_size=trace_size, grid_type=grid_type)
+    else:
+        grid = ProportionGrid(height, width, trace_size=trace_size, grid_type=grid_type, operation_type=operation_type)
+        
+    grid_dict[symbol_key] = grid
+    
+    # stock = yf.Ticker(symbol_key)
+    # stock_data = stock.history(period="max")['Close'].iloc[::-1]
+    
+    ts = TimeSeries(key=API_KEY, output_format='pandas')
+    
+    if symbol_counter % 5 == 0:
+      sleep(60)
+      print('sleep 60')
+
+    data, meta_data = ts.get_daily(symbol=symbol_key, outputsize='full')
+    price_vector = data['4. close']
+    
+    dataset = labeled_traces_from_array(price_vector, grid.trace_size, operator=operator)
+    X = np.array([trace for (trace, _) in dataset])
+    y = np.array([int(label >= 0) for (_, label) in dataset])
+    
+    Xs[symbol_key], ys[symbol_key] = X,y 
+    grid.fit(X[last_n_days:], y[:last_n_days], eliminate_noise_thold=eliminate_noise_thold)
+    
+    mean = grid.get_mean()
+    std = grid.get_std()
+    up_tholds[symbol_key] = mean + alpha_plus*std
+    down_tholds[symbol_key] = mean - alpha_minus*std
+
+#   #Initialize counters
+  info = []
+  correct_red = 0
+  incorrect_red = 0
+  correct_green = 0
+  incorrect_green = 0
+
+  for i in range(last_n_days):
+    
+    signal_found = False
+    for symbol_key in symbol_list:
+      grid = grid_dict[symbol_key]
+      trace = Xs[symbol_key][last_n_days-i]
+      label = ys[symbol_key][last_n_days-i]
+      x = np.linspace(0,grid.max_w-1,len(trace))
+      prediction = grid.evaluate(x,trace)
+      up_thold = up_tholds[symbol_key]
+      down_thold = down_tholds[symbol_key]
+      
+      
+      #if we have not found a signal, we look for one
+      if not signal_found:
+        if prediction > up_thold and label > 0:
+          correct_green +=1
+          signal_found=True
+          signal_counter[symbol_key] +=1
+        elif prediction > up_thold and label <= 0:
+          incorrect_red +=1
+          signal_found=True
+          signal_counter[symbol_key] +=1
+        elif prediction < down_thold and label > 0:
+          incorrect_green += 1
+          signal_found=True
+          signal_counter[symbol_key] +=1
+        elif prediction < down_thold and label <=0:
+          correct_red +=1 
+          signal_found=True
+          signal_counter[symbol_key] +=1
+        
+        if signal_found and symbol_key == 'SPY':
+          print(i, symbol_key, up_thold, down_thold, prediction)
+      else:
+        continue
+        
+      
+      # regardless of the signal, we update every grid
+      grid.update(x,trace, label)
+        
+
+
+#   mask0 = pred[:,2] == 0
+#   mask1 = pred[:,2] == 1
+
+#   red = pred[mask0]
+#   green = pred[mask1]
+
+#   correct_red = sum(red[:,0] < down_thold)
+#   incorrect_red = sum(red[:,0] > up_thold)
+#   correct_green = sum(green[:,0] > up_thold)
+#   incorrect_green = sum(green[:,0] < down_thold)
+
+  #metrics
+  number_of_predictions = correct_green+correct_red + incorrect_red + incorrect_green
+  acc = 100*(correct_red + correct_green)/number_of_predictions if number_of_predictions != 0 else 0
+  total = last_n_days
+  acc_above = 100*correct_green/(correct_green + incorrect_red) if correct_green + incorrect_red != 0 else 0
+  acc_below = 100*correct_red/(correct_red + incorrect_green) if correct_red + incorrect_green != 0 else 0
+  part_above = 100*(incorrect_red + correct_green)/total
+  part_below = 100*(incorrect_green + correct_red)/total
+  part = 100*number_of_predictions/total
+  
+  print(signal_counter)
+  
+  return [acc, part, acc_above, part_above, acc_below, part_below]

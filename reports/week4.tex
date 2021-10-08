@@ -16,7 +16,6 @@
 \renewcommand{\baselinestretch}{1.3}
 \usepackage{booktabs}
 \usepackage{soul}
-\usepackage{hyperref}
 
 %% NEW Commands
 \newcommand{\klein}{\text{*}}  
@@ -28,44 +27,70 @@
 \newcommand{\green}[1]{\textcolor{green}{#1}}
 
 
-\title{Reporte semanal: Septiembre 14-23}
+\title{Reporte semanal: Agosto 25-Septiembre 14 \textcolor{red}{\st{Agosto 31}}} 
 \author{Jorge Ballote}
 \begin{document}
 
 % \includepdf[pages=1]{portada_proyecto_02.pdf}
 \maketitle
 % ---- 1. INTRODUCCIÓN -----------------------------------------
-\section{Introducción} A continuación se presentan los resultados de la última semana. En esta ocasión se ha incluído unas conclusiones generales, de todo el proyecto.
+\section{Introducción} A continuación se presenta el reporte de resultados de la tercera semana.
 
 % ---- 2. Objetivos de la semana -----------------------------------------
 \section{Objetivos de la semana}
 Esta semana fue destinada a lo siguiente.
 \begin{enumerate}
-    \item Mejorar el porcentaje de participación en el mercado utilizando símbolos con poca correlación.
-    \item Creación de una Interfaz Gráfica para recibir señales
-
+    \item Algoritmo genético para la optimización de hiper parámetros.
+    \item Transformaciones a las series de tiempo para la investigación de diferentes patrones
 \end{enumerate}
+Los objetivos fueron cumplidos. En las siguiente secciones, se analizan los resultados obtenidos.
 
 % ---- 3. ALGORITMOS -----------------------------------------
-\section{Desarrollo de los objetivos}
+\section{Modificaciones al algoritmo}
+Se implementó una modificación al algoritmo inicial para transfomar las traces con funciones trigonométricas. Además, se implementó un algoritmo genético para optimizar hiperparámetros.
 
-\subsection{Uso de diferentes símbolos}
-Hasta ahora, se han realizado experimentos unicamente analizando datos del S$\&$P500, en particular con el símbolo $SPY$. Sin embargo, cómo se ha visto en los reportes anteriores, para alcanzar un porcentaje de accuracy alto, se requiere tener cierto umbral $T^+$ y $T^-$. Esto implica que algunos días no se obtengan señales (ni de compra, ni de venta). Para aumentar la participación, lo que haremos será incrementar la cantidad de símbolos que analizamos. Sin embargo, ¿Qué símbolos son los apropiados?.
+\subsection{Transformaciones de series de tiempo}
+En el artículo se describe que se han obtenido buenos resultados, transformando las series de tiempo con funciones trigonométricas. La lógica detrás de esto, consiste en que al aplicar una transformación, las traces lucirán muy diferentes a las originales, y en teoría nuestra grid debería ser capaz de detectar patrones nuevos con estas nuevas traces.
 
-Optimizar miles de hiperparámetros es una tarea demasiado costosa, sobre todo asumiendo que cada cierto tiempo deberían optimizarse, por consiguiente es necesario hacer una selección adecuada y reducida de los símbolos con los que se trabajará. Por otro lado, hay empresas que no llevan mucho tiempo en el mercado y esto podría implicar una muestra muy baja de información ara entrenar nuestros modelos. Para seleccionar los nuestros símbolos, lo que se hizo fue tomar los 511 de NASDAQ que comenzaron a cotizar en el mercado desde al menos el año 2000. Se seleccionó una lista donde cada pareja de elementos tuvieran baja correlación.
+\begin{figure}[H]
 
-\subsubsection{Correlación Pearson} 
-En estadística se utiliza para medir la correlación lineal que tienen dos variables aleatorias.  Dadas $n$ muestras $\{(x_i,y_i)\}_{i=1}^n$, la correlación se obtiene de la siguiente manera:
+    \centering
+    \includegraphics[width=.3\textwidth]{../src/imgs/trace.png}\hfill
+    \includegraphics[width=.3\textwidth]{../src/imgs/trace_cos.png}\hfill
+    \includegraphics[width=.3\textwidth]{../src/imgs/trace_sin.png}
+    
+    \caption{Diferencias entre traces con diferentes operadores aplicados.}
+    \label{fig:figure3}
+    
+\end{figure}
+
+Una pregunta importante es, ¿Se aplica la función trigonométrica a cada trace o a los precios en el tiempo?
+
+Supongamos que tenemos una serie de tiempo $a_1, ..., a_n$ y un valor siguiente $a_{n+1}$. Las traces se obtienen normalizando con el punto final. Es decir 
 \begin{equation}
-    r = \frac{\sum_{i=1}^n(x_i- \overline x)(y_i-\overline{ y})}{\sqrt{\sum_{i=1}^n(x_i-\overline x)^2} \sqrt{\sum_{i=1}^n(y_i-\overline y)^2}}
+    b_i = \frac{a_i}{a_n}-1. 
 \end{equation}
-y de manera resumida el valor máximo de $r$ es $r=1$, cuando se tiene una correlación positiva completa. Si $r=0$ no existe ninguna correlación  y si $r=-1$ existe una correlación negativa perfecta. Por consiguiente nosotros buscamos una correlación donde $|r| \to 0$.
+De modo que siempre ocurre que $b_n = \frac{a_n}{a_n} -1 = 0$. Esta es una propiedad que nos gustaría preservar. Por otro lado, para saber si estamos en presencia de una trace ganadora o perdedora, lo que se hace es sencillamente comparar si $a_{n+1} > a_n$ o biseversa. Llamaremos label entonces al siguiente valor:
+\begin{equation}
+    label = \frac{a_{n+1}}{a_n} -1
+\end{equation}
+También es importante que nuestra label se preserve usando los valores sin modificar (Es decir, antes de aplicar algún operador a la serie de tiempo). De modo que dado un operador $f: \mathbb R \to \mathbb R$, nuestra trace modificada esta dada por
+\begin{equation}
+    c_i = \frac{f(a_i)}{f(a_n)}-1, \quad label = \frac{a_{n+1}}{a_n} -1.
+\end{equation}
+Las funciones implementadas fueron, $\sin, \cos$ y $\tan$.  Los resultados se presentaran en la siguente sección, después de haber sido optimizados con nuestro algoritmo genético
 
-\subsubsection{Los símbolos seleccionados} Para obtener la lista de símbolos, seguimos un algoritmo muy sencillo. Empezamos con una lista $L$ que contenía únicamente a $SPY$. Iteramos en nuestros 511 símbolos y añadimos aquellos que tengan una correlación menor a $u=0.145025$ con todos los elementos de $L$. 
+\subsection{Optimización de hiperparámetros con un algoritmo genético}
+\subsubsection{Introducción a algoritos genéticos}
+Describiremos brevemente lo que es un algoritmo genético, para más información, consultar a [2].
 
+El algoritmo implementado, está inspirado en el proceso natural de la evolución. Nuestro conjunto de hiperparámetros por optimizar se conocen como cromosomas en este contexto. Y cada hiperparámetro es un gen.
 
-\subsection{Interfaz Gráfica}
-Este ha sido un proyecto desarrollado en python 3.9. La documentación se encuentra disponible en github: \url{https://github.com/ealjkj/Financial-Analysis}.
+Se tiene una población de soluciones inicial conocida como generación 0. A partir de ahí, usamos los elementos de cada generación para crear a la siguente. Los genes tienen más posibilidades de preservarse conforme mejor resultados proporcionen, es decir, mientras más valor tenga una Fitness function. Usualmente se usa la accuracy, pero en nuestro caso usaremos criteria2 = $\min(5p,1)(2a-1)$.
+
+Para dar lugar a la evolución es necesario el operador \textsl{crossover} que combina genes de dos miembros de la población, para obtener un nuevo cromosoma. Además de eso, se procura la diversidad de soluciones, utilizado un operador de mutación, que puede seleccionar una solución y modificarla ligeramente (Cambiarle un parámetro en nuestro caso).  
+
+En algunas ocasiones, se implementa el concepto de elitismo, que consiste en forzar a las mejores soluciones a permanecer siempre en la población.
 
 % ---- 4. Metodología -----------------------------------------
 \section{Metodología}

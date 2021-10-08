@@ -9,6 +9,7 @@
 
 
 from PyQt5 import QtCore, QtGui, QtWidgets
+from matplotlib import markers
 import matplotlib.pyplot as plt
 from itrac_grid import *
 import matplotlib  
@@ -18,24 +19,59 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from alpha_vantage.timeseries import TimeSeries
 import pandas as pd 
 import numpy as np 
+import yfinance as yf
+import os
+import json 
+from settings_form import Ui_Dialog
+from upload_params import Ui_Dialog_Upload
+from time import sleep
+
+
+GREEN_SUCCESS = '#228B22'
+RED_FAILURE = '#b22222'
+MUSTARD = '#E1AD01'
+
+def get_color(value):
+    if value > 58:
+        color = GREEN_SUCCESS
+    elif value < 50:
+        color = RED_FAILURE
+    else:
+        color = MUSTARD
+    return color
 
 
 class Ui_Main(object):
     def setupUi(self, Main):
         Main.setObjectName("Main")
-        Main.resize(800, 600) 
+        Main.resize(1400, 700) 
 
         self.stock = 'SPY'
         self.data, self.meta_data = ts.get_daily(symbol=self.stock, outputsize='full')
+
+
+        
+        
+
         self.last_n_days = 365
+        self.function_to_apply_index = 0
+        self.eliminate_noise_thold = 0.005
+        self.num_of_training_days = 'All'
+        self.file_path = r'C:\Users\Jorch\Desktop\software\Financial-Analysis\src\merge.json'
+        self.default_path = r'C:\Users\Jorch\Desktop\software\Financial-Analysis\src\merge.json'
+        
+        self.is_dialog_open = False
 
         self.figure = plt.figure(1)
+        self.figure.patch.set_facecolor('#D9D9D9')
+
+
         self.figure2 = plt.figure(2)
+        self.figure2.patch.set_facecolor('#D9D9D9')
+
+        
         self.centralwidget = QtWidgets.QWidget(Main)
         self.centralwidget.setObjectName("centralwidget")
-        self.centralwidget.setStyleSheet("font-family: Libre Baskerville")
-
-        self.centralwidget.setStyleSheet('background-color:#d6d8ff')
 
         self.verticalLayout = QtWidgets.QVBoxLayout(self.centralwidget)
         self.verticalLayout.setObjectName("verticalLayout")
@@ -46,75 +82,171 @@ class Ui_Main(object):
         self.horizontalLayout_2 = QtWidgets.QHBoxLayout()
         self.horizontalLayout_2.setObjectName("horizontalLayout_2")
 
+        titleSpacerLeft = QtWidgets.QSpacerItem(20, 80, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
+        titleSpacerLeft.sizePolicy = QtWidgets.QSizePolicy.Minimum
+        self.horizontalLayout_2.addItem(titleSpacerLeft)  
+
         self.grid_type_title = QtWidgets.QLabel(self.centralwidget)
         self.grid_type_title.setAlignment(QtCore.Qt.AlignRight|QtCore.Qt.AlignTrailing|QtCore.Qt.AlignVCenter)
         self.grid_type_title.setObjectName("grid_type_title")
-        self.grid_type_title.setFont(QtGui.QFont("League Spartan", 32, QtGui.QFont.Bold))
+        self.grid_type_title.setFont(QtGui.QFont("League Spartan", 20, QtGui.QFont.Bold))
 
         self.horizontalLayout_2.addWidget(self.grid_type_title)
 
-        self.symbol_title = QtWidgets.QLabel(self.centralwidget)
+        self.symbol_title = QtWidgets.QComboBox(self.centralwidget)
         self.symbol_title.setObjectName("symbol_title")
-        self.symbol_title.setFont(QtGui.QFont("League Spartan", 32, QtGui.QFont.Bold))
+        self.symbol_title.activated.connect(self.submit_function)
+        self.symbol_title.addItems(symbol_list)
+        self.symbol_title.setFont(QtGui.QFont("League Spartan", 20, QtGui.QFont.Bold))
         self.horizontalLayout_2.addWidget(self.symbol_title)
-        self.container_layout.addLayout(self.horizontalLayout_2)
 
+        self.upload_signal_layout = QtWidgets.QVBoxLayout()
+        self.horizontalLayout_2.addLayout(self.upload_signal_layout)
+
+        self.get_signal_button = QtWidgets.QPushButton(self.centralwidget)
+        self.get_signal_button.setObjectName("get_signal_button")
+        self.get_signal_button.clicked.connect(self.get_signal_funtion)
+        self.get_signal_button.setCursor(QtGui.QCursor(QtCore.Qt.PointingHandCursor))
+
+
+
+        self.radio_buttons_layout = QtWidgets.QHBoxLayout()
+
+        self.upload_signal_layout.addWidget(self.get_signal_button)
+        self.upload_signal_layout.addLayout(self.radio_buttons_layout)
+
+        self.default_parameters_radio = QtWidgets.QRadioButton(self.centralwidget)
+        self.default_parameters_radio.setObjectName("default_parameters_radio")
+        self.radio_buttons_layout.addWidget(self.default_parameters_radio)
+        self.default_parameters_radio.setChecked(True)
+
+        self.custom_parameters_radio = QtWidgets.QRadioButton(self.centralwidget)
+        self.custom_parameters_radio.setObjectName("default_parameters_radio")
+        self.radio_buttons_layout.addWidget(self.custom_parameters_radio)
+
+
+        settings_image = QtGui.QIcon('imgs\settings.svg')
+        upload_files_image = QtGui.QIcon(r'imgs\big_upload.svg')
+        self.upload_button = QtWidgets.QPushButton(self.centralwidget)
+        self.upload_button.setObjectName("upload_button")
+        self.upload_button.setIcon(upload_files_image)
+        self.upload_button.clicked.connect(self.upload_dialog)
+        self.radio_buttons_layout.addWidget(self.upload_button)
+        
+
+
+        titleSpacer = QtWidgets.QSpacerItem(20, 80, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
+        titleSpacer.sizePolicy = QtWidgets.QSizePolicy.Minimum
+        self.horizontalLayout_2.addItem(titleSpacer)  
+
+        
+
+
+        self.container_layout.addLayout(self.horizontalLayout_2)
         self.horizontalLayout = QtWidgets.QHBoxLayout()
         self.horizontalLayout.setObjectName("horizontalLayout")
+
+
+        self.line2 = QtWidgets.QFrame(self.centralwidget)
+        self.line2.setFrameShape(QtWidgets.QFrame.HLine)
+        self.line2.setFrameShadow(QtWidgets.QFrame.Sunken)
+        self.line2.setObjectName("line")
+        self.container_layout.addWidget(self.line2)
+
         self.parameters_vertical_layout = QtWidgets.QVBoxLayout()
         self.parameters_vertical_layout.setObjectName("parameters_vertical_layout")
 
         self.parameters_subtitle = QtWidgets.QLabel(self.centralwidget)
-        self.parameters_subtitle.setFont(QtGui.QFont("Libre Baskerville", 24, QtGui.QFont.Bold))
+        self.parameters_subtitle.setFont(QtGui.QFont("Libre Baskerville", 16, QtGui.QFont.Bold))
         self.parameters_subtitle.setObjectName("parameters_subtitle")
         self.parameters_vertical_layout.addWidget(self.parameters_subtitle)
         self.parameters_subtitle.setAlignment(QtCore.Qt.AlignHCenter|QtCore.Qt.AlignTop)
 
         self.parameters_grid_layout = QtWidgets.QGridLayout()
         self.parameters_grid_layout.setObjectName("parameters_grid_layout")
-        self.operation_type_label = QtWidgets.QLabel(self.centralwidget)
-        self.operation_type_label.setObjectName("label_12")
-        self.parameters_grid_layout.addWidget(self.operation_type_label, 2, 0, 1, 2)
-        self.operation_type_edit = QtWidgets.QLineEdit(self.centralwidget)
-        self.operation_type_edit.setObjectName("operation_type_edit")
-        self.parameters_grid_layout.addWidget(self.operation_type_edit, 2, 2, 1, 2)
-        self.width_label = QtWidgets.QLabel(self.centralwidget)
-        self.width_label.setObjectName("width_label")
-        self.parameters_grid_layout.addWidget(self.width_label, 0, 2, 1, 1)
-        self.trace_size_label = QtWidgets.QLabel(self.centralwidget)
-        self.trace_size_label.setObjectName("trace_size_label")
-        self.parameters_grid_layout.addWidget(self.trace_size_label, 1, 0, 1, 2)
-        self.trace_size_edit = QtWidgets.QLineEdit(self.centralwidget)
-        self.trace_size_edit.setObjectName("trace_size_edit")
-        self.parameters_grid_layout.addWidget(self.trace_size_edit, 1, 2, 1, 2)
-        self.grid_type_label = QtWidgets.QLabel(self.centralwidget)
-        self.grid_type_label.setObjectName("grid_type_label")
-        self.parameters_grid_layout.addWidget(self.grid_type_label, 3, 0, 1, 2)
-        self.height_label = QtWidgets.QLabel(self.centralwidget)
-        self.height_label.setObjectName("height_label")
-        self.parameters_grid_layout.addWidget(self.height_label, 0, 0, 1, 1)
+
         self.height_edit = QtWidgets.QLineEdit(self.centralwidget)
         self.height_edit.setObjectName("height_edit")
+        self.height_edit.setStyleSheet('font-size: 18px;')
+        self.height_edit.returnPressed.connect(self.submit_function)
         self.parameters_grid_layout.addWidget(self.height_edit, 0, 1, 1, 1)
-        self.grid_type_edit = QtWidgets.QLineEdit(self.centralwidget)
-        self.grid_type_edit.setObjectName("grid_type_edit")
-        self.parameters_grid_layout.addWidget(self.grid_type_edit, 3, 2, 1, 2)
+
+        self.width_label = QtWidgets.QLabel(self.centralwidget)
+        self.width_label.setObjectName("width_label")
+        self.width_label.setStyleSheet('font-size: 18px;')
+        self.parameters_grid_layout.addWidget(self.width_label, 0, 2, 1, 1)
+
         self.width_edit = QtWidgets.QLineEdit(self.centralwidget)
         self.width_edit.setObjectName("width_edit")
+        self.width_edit.setStyleSheet('font-size: 18px;')
+        self.width_edit.returnPressed.connect(self.submit_function)
         self.parameters_grid_layout.addWidget(self.width_edit, 0, 3, 1, 1)
-        self.advanced_options_label = QtWidgets.QLabel(self.centralwidget)
+
+        self.trace_size_edit = QtWidgets.QLineEdit(self.centralwidget)
+        self.trace_size_edit.setObjectName("trace_size_edit")
+        self.trace_size_edit.setStyleSheet('font-size: 18px;')
+        self.trace_size_edit.returnPressed.connect(self.submit_function)
+        self.parameters_grid_layout.addWidget(self.trace_size_edit, 1, 2, 1, 2)
+
+        self.operation_type_label = QtWidgets.QLabel(self.centralwidget)
+        self.operation_type_label.setObjectName("label_12")
+        self.operation_type_label.setStyleSheet('font-size: 18px;')
+        self.parameters_grid_layout.addWidget(self.operation_type_label, 2, 0, 1, 2)
+
+        self.operation_type_edit = QtWidgets.QComboBox(self.centralwidget)
+        self.operation_type_edit.setObjectName("operation_type_edit")
+        self.operation_type_edit.setStyleSheet('font-size: 18px;')   
+        self.operation_type_edit.addItems(['W-L', 'W/L', 'W/T', 'cW/L'])
+        self.parameters_grid_layout.addWidget(self.operation_type_edit, 2, 2, 1, 2)
+
+        
+        self.trace_size_label = QtWidgets.QLabel(self.centralwidget)
+        self.trace_size_label.setObjectName("trace_size_label")
+        self.trace_size_label.setStyleSheet('font-size: 18px;')
+        self.parameters_grid_layout.addWidget(self.trace_size_label, 1, 0, 1, 2)
+
+        
+
+        self.grid_type_label = QtWidgets.QLabel(self.centralwidget)
+        self.grid_type_label.setObjectName("grid_type_label")
+        self.grid_type_label.setStyleSheet('font-size: 18px;')
+        self.parameters_grid_layout.addWidget(self.grid_type_label, 3, 0, 1, 2)
+
+        self.height_label = QtWidgets.QLabel(self.centralwidget)
+        self.height_label.setObjectName("height_label")
+        self.height_label.setStyleSheet('font-size: 18px;')
+        self.parameters_grid_layout.addWidget(self.height_label, 0, 0, 1, 1)
+
+        
+
+        self.grid_type_edit = QtWidgets.QComboBox(self.centralwidget)
+        self.grid_type_edit.setObjectName("grid_type_edit")
+        self.grid_type_edit.setStyleSheet('font-size: 18px;')
+        self.grid_type_edit.addItems(['wins', 'earnings'])
+        self.parameters_grid_layout.addWidget(self.grid_type_edit, 3, 2, 1, 2)
+
+        settings_image = QtGui.QIcon('imgs\settings.svg')
+        self.advanced_options_label = QtWidgets.QPushButton(self.centralwidget)
+        self.advanced_options_label.setIcon(settings_image)
+        self.advanced_options_label.clicked.connect(self.settings_dialog)
+
+
         sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
         sizePolicy.setHorizontalStretch(0)
         sizePolicy.setVerticalStretch(0)
         sizePolicy.setHeightForWidth(self.advanced_options_label.sizePolicy().hasHeightForWidth())
         self.advanced_options_label.setSizePolicy(sizePolicy)
         self.advanced_options_label.setCursor(QtGui.QCursor(QtCore.Qt.PointingHandCursor))
-        self.advanced_options_label.setWordWrap(True)
+        # self.advanced_options_label.setWordWrap(True)
         self.advanced_options_label.setObjectName("advanced_options_label")
+        # self.advanced_options_label.clicked.connect(self.settings_dialog)
         self.parameters_grid_layout.addWidget(self.advanced_options_label, 4, 0, 2, 1)
 
         self.submit_button = QtWidgets.QPushButton(self.centralwidget)
         self.submit_button.setObjectName("submit_button")
+        self.submit_button.setStyleSheet('font-size: 20px;')
+        self.submit_button.setCursor(QtGui.QCursor(QtCore.Qt.PointingHandCursor))
+
         self.submit_button.clicked.connect(self.submit_function)
         self.parameters_grid_layout.addWidget(self.submit_button, 4, 1, 2, 3)
         self.submit_button.setMinimumSize(134,60)
@@ -133,28 +265,107 @@ class Ui_Main(object):
         self.horizontalLayout.addLayout(self.parameters_vertical_layout)
         self.verticalLayout_7 = QtWidgets.QVBoxLayout()
         self.verticalLayout_7.setObjectName("verticalLayout_7")
+        self.verticalLayout_7.setContentsMargins(10, 0, 10, 0)
 
         self.performance_subtitle = QtWidgets.QLabel(self.centralwidget)
-        self.performance_subtitle.setFont(QtGui.QFont("Libre Baskerville", 24, QtGui.QFont.Bold))
+        self.performance_subtitle.setFont(QtGui.QFont("Libre Baskerville", 16, QtGui.QFont.Bold))
         self.performance_subtitle.setObjectName("performance_label")
         self.verticalLayout_7.addWidget(self.performance_subtitle)
         self.performance_subtitle.setAlignment(QtCore.Qt.AlignHCenter|QtCore.Qt.AlignTop)
 
+        #horizontal layout for accuracy
+        self.horizontal_layout_accuracy = QtWidgets.QHBoxLayout()
+        self.verticalLayout_7.addLayout(self.horizontal_layout_accuracy)
+        self.horizontal_layout_accuracy.setAlignment(QtCore.Qt.AlignTop)
+
         self.accuracy_label = QtWidgets.QLabel(self.centralwidget)
         self.accuracy_label.setObjectName("accuracy_label")
-        self.verticalLayout_7.addWidget(self.accuracy_label)
+        self.horizontal_layout_accuracy.addWidget(self.accuracy_label)
+        
+        self.acc_number_label = QtWidgets.QLabel(self.centralwidget)
+        self.acc_number_label.setObjectName("acc_number_label")
+        self.acc_number_label.setAlignment(QtCore.Qt.AlignRight)
+        self.horizontal_layout_accuracy.addWidget(self.acc_number_label)
+
+        #horizontal layout for participation
+        self.horizontal_layout_participation = QtWidgets.QHBoxLayout()
+        self.verticalLayout_7.addLayout(self.horizontal_layout_participation)
+        self.horizontal_layout_participation.setAlignment(QtCore.Qt.AlignTop)
+
+        self.participation_label = QtWidgets.QLabel(self.centralwidget)
+        self.participation_label.setObjectName("paraticipation_label")
+        self.horizontal_layout_participation.addWidget(self.participation_label)
+        
+        self.part_number_label = QtWidgets.QLabel(self.centralwidget)
+        self.part_number_label.setObjectName("acc_number_label")
+        self.part_number_label.setAlignment(QtCore.Qt.AlignRight)
+        self.horizontal_layout_participation.addWidget(self.part_number_label)
+
+
+        #horizontal layout for acc_above
+        self.horizontal_layout_acc_above = QtWidgets.QHBoxLayout()
+        self.horizontal_layout_acc_above.setAlignment(QtCore.Qt.AlignTop)
+        self.verticalLayout_7.addLayout(self.horizontal_layout_acc_above)
+
         self.acc_above_label = QtWidgets.QLabel(self.centralwidget)
         self.acc_above_label.setObjectName("acc_above_label")
-        self.verticalLayout_7.addWidget(self.acc_above_label)
+        self.horizontal_layout_acc_above.addWidget(self.acc_above_label)
+
+        self.acc_above_number_label = QtWidgets.QLabel(self.centralwidget)
+        self.acc_above_number_label.setObjectName("acc_above_number_label")
+        self.acc_above_number_label.setAlignment(QtCore.Qt.AlignRight)
+        self.horizontal_layout_acc_above.addWidget(self.acc_above_number_label)
+        
+        #horizontal layout for part_above
+        self.horizontal_layout_part_above = QtWidgets.QHBoxLayout()
+        self.verticalLayout_7.addLayout(self.horizontal_layout_part_above)
+        self.horizontal_layout_part_above.setAlignment(QtCore.Qt.AlignTop)
+
+        self.part_above_label = QtWidgets.QLabel(self.centralwidget)
+        self.part_above_label.setObjectName("part_above_label")
+        self.horizontal_layout_part_above.addWidget(self.part_above_label)
+        
+        self.part_above_number_label = QtWidgets.QLabel(self.centralwidget)
+        self.part_above_number_label.setObjectName("part_number_label")
+        self.part_above_number_label.setAlignment(QtCore.Qt.AlignRight)
+        self.horizontal_layout_part_above.addWidget(self.part_above_number_label)
+
+        #horizontal layout for acc_below
+        self.horizontal_layout_acc_below = QtWidgets.QHBoxLayout()
+        self.horizontal_layout_acc_below.setAlignment(QtCore.Qt.AlignTop)
+        self.verticalLayout_7.addLayout(self.horizontal_layout_acc_below)
+
         self.acc_below_label = QtWidgets.QLabel(self.centralwidget)
         self.acc_below_label.setObjectName("acc_below_label")
-        self.verticalLayout_7.addWidget(self.acc_below_label)
+        self.horizontal_layout_acc_below.addWidget(self.acc_below_label)
+
+        self.acc_below_number_label = QtWidgets.QLabel(self.centralwidget)
+        self.acc_below_number_label.setObjectName("acc_below_number_label")
+        self.acc_below_number_label.setAlignment(QtCore.Qt.AlignRight)
+        self.horizontal_layout_acc_below.addWidget(self.acc_below_number_label)
+
+        #horizontal layout for part_above
+        self.horizontal_layout_part_below = QtWidgets.QHBoxLayout()
+        self.verticalLayout_7.addLayout(self.horizontal_layout_part_below)
+        self.horizontal_layout_part_below.setAlignment(QtCore.Qt.AlignTop)
+
+        self.part_below_label = QtWidgets.QLabel(self.centralwidget)
+        self.part_below_label.setObjectName("part_below_label")
+        self.horizontal_layout_part_below.addWidget(self.part_below_label)
+        
+        self.part_below_number_label = QtWidgets.QLabel(self.centralwidget)
+        self.part_below_number_label.setObjectName("part_below_number_label")
+        self.part_below_number_label.setAlignment(QtCore.Qt.AlignRight)
+        self.horizontal_layout_part_below.addWidget(self.part_below_number_label)
+
+
+        #vertical layout
         self.horizontalLayout.addLayout(self.verticalLayout_7)
         self.verticalLayout_8 = QtWidgets.QVBoxLayout()
         self.verticalLayout_8.setObjectName("verticalLayout_8")
 
         self.todays_trace_subtitle = QtWidgets.QLabel(self.centralwidget)
-        self.todays_trace_subtitle.setFont(QtGui.QFont("Libre Baskerville", 24, QtGui.QFont.Bold))
+        self.todays_trace_subtitle.setFont(QtGui.QFont("Libre Baskerville", 16, QtGui.QFont.Bold))
         self.todays_trace_subtitle.setObjectName("todays_trace_subtitle")
         self.verticalLayout_8.addWidget(self.todays_trace_subtitle)
         self.todays_trace_subtitle.setAlignment(QtCore.Qt.AlignHCenter|QtCore.Qt.AlignTop)
@@ -166,7 +377,9 @@ class Ui_Main(object):
 
         self.trace_score_label = QtWidgets.QLabel(self.centralwidget)
         self.trace_score_label.setObjectName("trace_score_label")
+        self.trace_score_label.setAlignment(QtCore.Qt.AlignHCenter|QtCore.Qt.AlignTop)
         self.verticalLayout_8.addWidget(self.trace_score_label)
+
         self.verticalLayout_8.setStretch(0, 1)
         self.verticalLayout_8.setStretch(1, 2)
         self.verticalLayout_8.setStretch(2, 1)
@@ -198,7 +411,8 @@ class Ui_Main(object):
         self.verticalLayout_9.addWidget(self.alpha_plus_label)
 
         self.alpha_plus_edit = QtWidgets.QLineEdit(self.centralwidget)
-        self.alpha_plus_edit.editingFinished.connect(self.update_performance_data)
+        
+
         self.alpha_plus_edit.setObjectName("alpha_plus_edit")
         self.verticalLayout_9.addWidget(self.alpha_plus_edit)
 
@@ -206,8 +420,10 @@ class Ui_Main(object):
         self.alpha_minus_label.setObjectName("alpha_minus_label")
         self.verticalLayout_9.addWidget(self.alpha_minus_label)
         self.alpha_minus_edit = QtWidgets.QLineEdit(self.centralwidget)
+        
         self.alpha_minus_edit.setObjectName("alpha_minus_edit")
         self.verticalLayout_9.addWidget(self.alpha_minus_edit)
+
         spacerItem1 = QtWidgets.QSpacerItem(20, 200, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
         self.verticalLayout_9.addItem(spacerItem1)
         self.horizontalLayout_3.addLayout(self.verticalLayout_9)
@@ -236,23 +452,18 @@ class Ui_Main(object):
 
     def retranslateUi(self, Main):
         _translate = QtCore.QCoreApplication.translate
-        Main.setWindowTitle(_translate("Main", "Main"))
-        self.grid_type_title.setText(_translate("Main", "Grid Type"))
-        self.symbol_title.setText(_translate("Main", " SPY     "))
+        Main.setWindowTitle(_translate("Main", "ITRAC signals"))
+        self.grid_type_title.setText(_translate("Main", "Symbol: "))
+        self.get_signal_button.setText(_translate("Main", "Get Signal"))
         self.parameters_subtitle.setText(_translate("Main", "Parameters"))
         self.operation_type_label.setText(_translate("Main", "Operation Type"))
         self.width_label.setText(_translate("Main", "Width"))
         self.trace_size_label.setText(_translate("Main", "Trace Size"))
         self.grid_type_label.setText(_translate("Main", "Grid Type"))
         self.height_label.setText(_translate("Main", "Height"))
-        self.advanced_options_label.setText(_translate("Main", "Advanced Options"))
         self.submit_button.setText(_translate("Main", "Submit"))
         self.performance_subtitle.setText(_translate("Main", "Last 365 days performance"))
-        self.accuracy_label.setText(_translate("Main", "Accuracy:"))
-        self.acc_above_label.setText(_translate("Main", "Acc_above:"))
-        self.acc_below_label.setText(_translate("Main", "Acc_below:"))
         self.todays_trace_subtitle.setText(_translate("Main", "Today\'s Trace"))
-        self.trace_score_label.setText(_translate("Main", "Score: Signal:"))
         self.alpha_plus_label.setText(_translate("Main", "Alpha plus"))
         self.alpha_plus_edit.setText(_translate("Main", "1"))
         self.alpha_minus_label.setText(_translate("Main", "Alpha minus"))
@@ -260,45 +471,130 @@ class Ui_Main(object):
         self.height_edit.setText(_translate("Main", "15"))
         self.width_edit.setText(_translate("Main", "15"))
         self.trace_size_edit.setText(_translate("Main", "15"))
-        self.operation_type_edit.setText(_translate("Main", "W/L"))
-        self.grid_type_edit.setText(_translate("Main", "wins"))
         self.menuFile.setTitle(_translate("Main", "File"))
+        self.default_parameters_radio.setText(_translate("Dialog", "Default"))
+        self.custom_parameters_radio.setText(_translate("Dialog", "Custom"))
+
+    def settings_dialog(self):
+        if not self.is_dialog_open:
+            self.is_dialog_open = True
+            Dialog = QtWidgets.QDialog()
+            ui = Ui_Dialog()
+            ui.setupUi(Dialog)
+
+            #make dialog changes
+            Dialog.setWindowTitle("Settings")
+            ui.last_n_days = self.last_n_days
+            ui.function_to_apply_index = self.function_to_apply_index
+            ui.eliminate_noise_thold = self.eliminate_noise_thold
+            ui.num_of_training_days = self.num_of_training_days
+
+            ui.last_n_days_edit.setText(str(ui.last_n_days))
+            ui.eliminate_noise_thold_edit.setText(str(ui.eliminate_noise_thold))
+            ui.comboBox.setCurrentIndex(ui.function_to_apply_index)
+
+            if self.num_of_training_days == 'All':
+                ui.all_radio_button.setChecked(True)
+            else:
+                ui.custom_radio_button.setChecked(True)
+                ui.training_days_edit.setText(str(self.num_of_training_days))
+
+            Dialog.show()
+            Dialog.exec_()
+
+            
+            self.last_n_days = int(ui.last_n_days)
+            self.function_to_apply_index = int(ui.function_to_apply_index)
+            self.eliminate_noise_thold = float(ui.eliminate_noise_thold)
+
+            if ui.training_days_edit.text()=='' or ui.all_radio_button.isChecked():
+                ui.num_of_training_days = 'All'
+            else:        
+                self.num_of_training_days = int(ui.num_of_training_days)
+
+            #after everything the dialog is closed
+            self.is_dialog_open = False
+        else:
+            pass
+
+    def upload_dialog(self):
+        if not self.is_dialog_open:
+            self.is_dialog_open = True
+            Dialog = QtWidgets.QDialog()
+            ui = Ui_Dialog_Upload()
+            ui.setupUi(Dialog)
+
+            # set up file_path
+            ui.drop_files_label.file_path = self.file_path
+            ui.file_path = self.file_path
+
+            #make dialog changes
+            Dialog.setWindowTitle("Upload File")
+            Dialog.show()
+            Dialog.exec_()
+
+            self.file_path = ui.file_path
+            print(self.file_path)
+            #after everything the dialog is closed
+            self.is_dialog_open = False
+            self.custom_parameters_radio.setChecked(True)
+        else:
+            pass
+            
 
     def submit_function(self):
         height = int(self.height_edit.text())
         width = int(self.width_edit.text())
         trace_size = int(self.trace_size_edit.text())
-        grid_type = self.grid_type_edit.text()
-        operation_type = self.operation_type_edit.text()
-        alpha_plus = float(self.alpha_plus_edit.text())
-        alpha_minus = float(self.alpha_minus_edit.text())
-
+        grid_type = self.grid_type_edit.currentText()
+        operation_type = self.operation_type_edit.currentText()
+        self.stock =  self.symbol_title.currentText()
         
-        close = self.data['4. close'].to_numpy()
+        # stock = yf.Ticker(symbol)
+        # close = stock.history(period="max")['Close'].iloc[::-1]
+        self.data, self.meta_data = ts.get_daily(symbol=self.stock, outputsize='full')
+        if self.num_of_training_days.lower() == 'all':
+            close = self.data['4. close']
+        else: 
+            close = self.data['4. close'][:self.num_of_training_days]
+            
 
         #Getting the trace
         y = close[0:trace_size]
+        self.todays_close = close[0]
         y = np.flip(y,0) # The first element on data is the last day. We have to flip the array
         y = y/y[-1]-1
+
+        self.todays_trace = y
 
         #Plot today's trace
         self.figure.clear()
         ax = self.figure.add_subplot(111)
-        ax.plot(y)
+        ax.plot(y, c='#262626', marker='1')
+        ax.grid(color = '#D9D9D9', linestyle = '--', linewidth = 0.5)
+        ax.axes.xaxis.set_visible(False)
+        ax.tick_params(axis='y', labelsize=8)
+        
+
         self.trace_plot_canvas.draw()
+        
 
 
         #Train Grid
-        self.grid = Grid(height, width, trace_size, grid_type, operation_type)
-        info = last_days_grid_info(close, last_n_days= self.last_n_days, grid=self.grid, eliminate_noise_thold=0.005)
+        if operation_type == 'W-L':
+            self.grid = Grid(height, width, trace_size, grid_type)
+        else:
+            self.grid = ProportionGrid(height, width, trace_size, grid_type, operation_type)
+
+        info = last_days_grid_info(close, last_n_days= self.last_n_days, grid=self.grid, eliminate_noise_thold=self.eliminate_noise_thold)
+        # info = last_days_grid_info(close, last_n_days= self.last_n_days, grid=self.grid, eliminate_noise_thold=0.005)
         self.pred, self.mean, self.std = info
 
         #Plot other graph
         self.update_performance_data()
+        self.alpha_plus_edit.editingFinished.connect(self.update_performance_data)
+        self.alpha_minus_edit.editingFinished.connect(self.update_performance_data)
 
-        
-        print(height, width, trace_size, grid_type, operation_type, alpha_plus, alpha_minus)
-        print('info: ', info[0])
 
     def update_performance_data(self):
         alpha_plus = float(self.alpha_plus_edit.text())
@@ -318,7 +614,7 @@ class Ui_Main(object):
         correct_green = sum(green[:,0] > up_thold)
         incorrect_green = sum(green[:,0] < down_thold)
 
-        #metrics
+        # Metrics
         number_of_predictions = correct_green+correct_red + incorrect_red + incorrect_green
         acc = 100*(correct_red + correct_green)/number_of_predictions
         total = len(green) + len(red)
@@ -328,6 +624,46 @@ class Ui_Main(object):
         part_below = 100*(incorrect_green + correct_red)/total
         part = 100*number_of_predictions/total
 
+        #Prediction
+        x = np.linspace(0,self.grid.trace_size-1,self.grid.trace_size)
+        score = self.grid.evaluate(x, self.todays_trace)
+        if score > up_thold:
+            self.trace_score_label.setText(f'Signal: Buy below {self.todays_close}')
+            self.trace_score_label.setStyleSheet(f'color: {GREEN_SUCCESS}')
+        elif score < down_thold:
+            self.trace_score_label.setText(f'Signal: Sell above {self.todays_close}')
+            self.trace_score_label.setStyleSheet(f'color: {RED_FAILURE}')
+        else:
+            self.trace_score_label.setText(f'Signal: Stay')
+            self.trace_score_label.setStyleSheet(f'color: #000000')
+
+        #Update info labels
+        # self.accuracy_label.setText(f'Accuracy: {acc:.2f}%. Participation: {part:.2f}%')
+
+
+
+        self.accuracy_label.setText('Accuracy:')
+        self.acc_number_label.setText(f'{acc:.2f}%')
+        self.acc_number_label.setStyleSheet(f'color: {get_color(acc)};')
+
+        self.acc_above_label.setText("Accuracy above threshold:")
+        self.acc_above_number_label.setText(f'{acc_above:.2f}%')
+        self.acc_above_number_label.setStyleSheet(f'color: {get_color(acc_above)};')
+
+        self.acc_below_label.setText("Accuracy below threshold:")
+        self.acc_below_number_label.setText(f'{acc_below:.2f}%')
+        self.acc_below_number_label.setStyleSheet(f'color: {get_color(acc_below)};')
+        
+        #participations
+        self.participation_label.setText('Participation:')
+        self.part_number_label.setText(f'{part:.2f}%')
+
+        self.part_above_label.setText('Participation above threshold:')
+        self.part_above_number_label.setText(f'{part_above:.2f}%')
+
+        self.part_below_label.setText('Participation below threshold:')
+        self.part_below_number_label.setText(f'{part_below:.2f}%')
+
         #Plot the graph
         self.figure2.clear()
         ax2 = self.figure2.add_subplot(111)
@@ -335,26 +671,204 @@ class Ui_Main(object):
         ax2.plot(self.pred[:,0], alpha=0.1)
         ax2.plot(range(self.last_n_days),np.ones(self.last_n_days)*up_thold, '--')
         ax2.plot(range(self.last_n_days),np.ones(self.last_n_days)*down_thold, '--', color='#333333')
-        plt.scatter(red[:,1], red[:,0], s= 3, c='red', alpha = 1)
-        plt.scatter(green[:,1], green[:,0], s= 3, c='green', alpha=1)
+        ax2.axes.yaxis.set_visible(False)
+        plt.scatter(red[:,1], red[:,0], s= 6, c='#FF4518', alpha = 0.8)
+        plt.scatter(green[:,1], green[:,0], s= 6, c='#49632C', alpha=0.8)
+        plt.title("Scores")
 
         self.widget.draw()
 
-        
-        
+    def get_signal_funtion(self):
+        if self.default_parameters_radio.isChecked():
+            filepath = self.default_path
+        else:
+            filepath = self.file_path
+
+        f = open(filepath, 'r')
+        param_dict = json.loads(f.read())
+        priority_list = [0]*len(param_dict)
+        for key in param_dict:
+            priority = param_dict[key]['priority']
+            priority_list[priority-1] = key
+            
+        operator = [lambda x: x, np.sin, np.cos, np.tan][self.function_to_apply_index]
+        up_tholds = {}
+        down_tholds = {}
+ 
+        counter = 0
+        for symbol_key in priority_list:
+            counter += 1
+            if counter % 5 == 0:
+                sleep(20)
+            print(symbol_key)
+            height = param_dict[symbol_key]['height']
+            width = param_dict[symbol_key]['width']
+            trace_size = param_dict[symbol_key]['trace_size']
+            grid_type = param_dict[symbol_key]['grid_type']
+            operation_type = param_dict[symbol_key]['operation_type']
+            alpha_plus = param_dict[symbol_key]['alpha_plus']
+            alpha_minus = param_dict[symbol_key]['alpha_minus']
+            eliminate_noise_thold = param_dict[symbol_key]['eliminate_noise_thold']
+
+            print(height, width, trace_size)
+
+            if operation_type =='W-L':
+                grid = Grid(height, width, trace_size=trace_size, grid_type=grid_type)
+            else:
+                grid = ProportionGrid(height, width, trace_size=trace_size, grid_type=grid_type, operation_type=operation_type)
+
+            # stock = yf.Ticker(symbol_key)
+            # stock_data = stock.history(period="max")['Close'].iloc[::-1]
+            # price_vector = stock_data
+            
+            self.data, self.meta_data = ts.get_daily(symbol=symbol_key, outputsize='full')
+            price_vector = self.data['4. close']
+            grid.train(price_vector, eliminate_noise_thold=eliminate_noise_thold)
+    
+            mean = grid.get_mean()
+            std = grid.get_std()
+            up_tholds[symbol_key] = mean + alpha_plus*std
+            down_tholds[symbol_key] = mean - alpha_minus*std
+
+            trace = price_vector[:grid.trace_size]
+            x = np.linspace(0,grid.max_w-1,len(trace))
+            prediction = grid.evaluate(x,trace)
+
+            up_thold = up_tholds[symbol_key]
+            down_thold = down_tholds[symbol_key]
+
+            if prediction > up_thold or prediction < down_thold:
+                self.change_params(param_dict, symbol_key)
+                self.submit_function()
+                break 
+            else:
+                continue
+    
+    def change_params(self, param_dict, symbol_key):
+        height = param_dict[symbol_key]['height']
+        width = param_dict[symbol_key]['width']
+        trace_size = param_dict[symbol_key]['trace_size']
+        grid_type = param_dict[symbol_key]['grid_type']
+        operation_type = param_dict[symbol_key]['operation_type']
+        alpha_plus = param_dict[symbol_key]['alpha_plus']
+        alpha_minus = param_dict[symbol_key]['alpha_minus']
+        eliminate_noise_thold = param_dict[symbol_key]['eliminate_noise_thold']
+
+        #change texts
+        self.symbol_title.setCurrentText(symbol_key)
+        self.height_edit.setText(str(height))
+        self.width_edit.setText(str(width))
+        self.trace_size_edit.setText(str(trace_size))
+        self.grid_type_edit.setCurrentText(str(grid_type))
+        self.operation_type_edit.setCurrentText(str(operation_type))
+        self.alpha_plus_edit.setText(str(alpha_plus))
+        self.alpha_minus_edit.setText(str(alpha_minus))
+        self.eliminate_noise_thold = eliminate_noise_thold
+
+
 
 
 if __name__ == "__main__":
     import sys
     import os
-
+    
+    PARAMS_PATH = 'improved_params'
+    params_per_symbol = {}
+    symbol_list = []
+    for filename in os.listdir(PARAMS_PATH):
+        symbol_key = filename[:-5]
+        symbol_list.append(symbol_key)
+        name = f'{PARAMS_PATH}/{filename}'
+        f = open(name, 'r')
+        params_per_symbol[symbol_key] = json.loads(f.read())
+        
+    symbol_list = symbol_list[::-1]
 
 
     API_KEY = 'MDT9LRDR9TIZGJLH'
     ts = TimeSeries(key=API_KEY, output_format='pandas')
 
     app = QtWidgets.QApplication(sys.argv)
+    window_icon = QtGui.QIcon(r'imgs\blue-graph.svg')
+    app.setWindowIcon(window_icon)
+    app.setStyleSheet("""
+        * {
+            background-color: #FFFFFF;
+            color: #353535;
+            font-size: 18px;
+        }
 
+        QLabel#grid_type_title, QComboBox#symbol_title {
+            font-size: 36px;
+        }
+
+        QPushButton#submit_button {
+            border: 2px solid #FFFFFF;
+            background-color: #3C6E71;
+            color: #FFFFFF;
+            }
+
+        QPushButton#submit_button:hover {
+            border: 2px solid #3C6E71 2%;
+            background-color: #FFFFFF;
+            color: #3C6E71;
+            }
+        
+        QPushButton#get_signal_button {
+            border: 2px solid #FFFFFF;
+            background-color: #3C6E71;
+            color: #FFFFFF;
+            width: 150px;
+            height:25px;
+        }
+
+        QPushButton#get_signal_button:hover {
+            border: 2px solid #3C6E71 2%;
+            background-color: #FFFFFF;
+            color: #3C6E71;
+        }
+
+        QLabel#trace_score_label{
+            font-size: 25px;
+        }
+
+        QLabel#parameters_subtitle, QLabel#performance_subtitle, QLabel#todays_trace_subtitle{
+            font-size: 25px;
+        }
+
+        QLabel#advanced_options_label{
+            border-radius : 500px;
+            border: 2px solid #3C6E71;
+        }
+
+        QGroupBox {
+            color: #3C6E71;
+        }
+
+        QPushButton#upload_button {
+            font-size: 300px;        }
+
+        QDialog#upload_dialog {
+            background-color: #3C6E71;
+        }    
+
+        
+        QLabel#drop_files_label {
+            background-color: #353535;
+            background-color: #3C6E71;
+        }
+
+        QPushButton#browse_files_button {
+            width: 190px;
+            margin-bottom: 20px;
+            margin-top: 20px;
+            margin-left: 10px;
+                   }
+
+        QButtonBox {
+            width: 200px;
+        }
+    """)    
 
     CURRENT_DIRECTORY = os.path.dirname(os.path.realpath(__file__))
     font_path1 = os.path.join(CURRENT_DIRECTORY, "Libre_Baskerville", "LibreBaskerville-Bold.ttf")

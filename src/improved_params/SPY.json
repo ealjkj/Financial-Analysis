@@ -1,0 +1,18 @@
+{
+    "trace_size": 12,
+    "height": 28,
+    "width": 12,
+    "grid_type": "wins",
+    "operation_type": "W-L",
+    "alpha_plus": 1,
+    "alpha_minus": 1,
+    "eliminate_noise_thold": 0.007803785574316699,
+    "test_accuracy": 58.064516129032256,
+    "test_participation": 8.493150684931507,
+    "test_acc_above": 61.904761904761905,
+    "test_part_above": 5.7534246575342465,
+    "test_acc_below": 50.0,
+    "test_part_below": 2.73972602739726,
+    "val_criteria10": 0.0851581508515815,
+    "val_acc": 60.077461389961385
+}

@@ -15,23 +15,19 @@ import itrac_grid
 from alpha_vantage.timeseries import TimeSeries
 from utils import *
 from sklearn.model_selection import train_test_split
-from sklearn.model_selection import TimeSeriesSplit
 from sklearn.model_selection import KFold
 import json
+from sklearn.model_selection import TimeSeriesSplit
 
 # boundaries for itrac_training parameters:
-# "trace_size, width": 1 to 100
+# "trace_size, width": 5 to 40
 # "height": 1 to 100
-# "grid_type": 0 to 1
-# "operation_type": 0 to 3
-# "alpha_plus": 0.0 to 2.0
-# "alpha_minus": 0.0 to 2.0
 # "eliminate_noise":0 to 0.1
 
 
 # [n_estimators, learning_rate, algorithm]:
-BOUNDS_LOW =  [  1, 1, 0, 0, 0.0, 0.0, 0.0]
-BOUNDS_HIGH = [100, 100, 1, 2, 1.0, 1.0, 0.1]
+BOUNDS_LOW =  [10, 1, 0.0]
+BOUNDS_HIGH = [25, 100, 0.01]
 
 NUM_OF_PARAMS = len(BOUNDS_HIGH)
 
@@ -42,14 +38,15 @@ P_MUTATION = 0.5   # probability for mutating an individual
 MAX_GENERATIONS = 15
 HALL_OF_FAME_SIZE = 3
 CROWDING_FACTOR = 20.0  # crowding factor for crossover and mutation
-METRIC_TO_OPTIMIZE = 'criteria10_above'
+METRIC_TO_OPTIMIZE = 'criteria10'
 OPERATOR = lambda x: x
+
 print('-'*100)
 print('OPERATOR:', OPERATOR)
 toolbox = base.Toolbox()
 
 # define a single objective, maximizing fitness strategy:
-creator.create("FitnessMax", base.Fitness, weights=(1.0,))
+creator.create("FitnessMax", base.Fitness, weights=(1.0, ))
 
 # create the Individual class based on list:
 creator.create("Individual", list, fitness=creator.FitnessMax)
@@ -84,11 +81,11 @@ def convertParams(individual):
     params['trace_size'] = round(individual[0])
     params['height'] = round(individual[1])
     params['width'] = round(individual[0])
-    params['grid_type'] = ['wins', 'earnings'][round(individual[2])]
-    params['operation_type'] = ['W-L', 'W/L', 'W/T', 'cW/L'][round(individual[3])]
-    params['alpha_plus'] = individual[4]
-    params['alpha_minus'] = individual[5]
-    params['eliminate_noise_thold'] = individual[6]
+    params['grid_type'] = 'wins'
+    params['operation_type'] = 'W-L'
+    params['alpha_plus'] = 1
+    params['alpha_minus'] = 1
+    params['eliminate_noise_thold'] = individual[2]
 
     return params
 
@@ -98,11 +95,11 @@ def classificationAccuracy(individual):
     #convert parameters
     trace_size = round(individual[0])
     height = round(individual[1])
-    grid_type = ['wins', 'earnings'][round(individual[2])]
-    operation_type = ['W-L', 'W/L', 'W/T', 'cW/L'][round(individual[3])]
-    alpha_plus = individual[4]
-    alpha_minus = individual[5]
-    eliminate_noise_thold = individual[6]
+    grid_type = 'wins'
+    operation_type = 'W-L'
+    alpha_plus = 1
+    alpha_minus = 1
+    eliminate_noise_thold = individual[2]
     width = trace_size
 
     if operation_type == 'W-L':
@@ -117,21 +114,32 @@ def classificationAccuracy(individual):
     X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=23, test_size=0.2, stratify=y)
 
     metric_sum = 0
+    val_acc_sum = 0
     for train_index, test_index in kf.split(X_train):
         kX_train, kX_test = X_train[train_index], X_train[test_index]
         ky_train, ky_test = y_train[train_index], y_train[test_index]
         
         grid.fit(kX_train, ky_train, eliminate_noise_thold=eliminate_noise_thold)
-        metric = grid.get_metrics(kX_test, ky_test, alpha_plus=alpha_plus, alpha_minus=alpha_minus)[METRIC_TO_OPTIMIZE]
+        metrics = grid.get_metrics(kX_test, ky_test, alpha_plus=alpha_plus, alpha_minus=alpha_minus)
+        metric = metrics[METRIC_TO_OPTIMIZE]
+        val_acc = metrics['accuracy']
+        
         metric_sum += metric
+        val_acc_sum += val_acc 
+
+         
+
         
     average_metric = metric_sum/n_splits
+    average_acc = val_acc_sum/n_splits
+    individual.val_acc = average_acc
+
 
     if numpy.isnan(average_metric):
         average_metric = -1
 
-    return average_metric,
-
+    ans = average_metric, 
+    return ans
 toolbox.register("evaluate", classificationAccuracy)
 
 # genetic operators:mutFlipBit
@@ -153,7 +161,7 @@ toolbox.register("mutate",
 
 
 # Genetic Algorithm flow:
-def main():
+def main(stock):
 
     # create initial population (generation 0):
     population = toolbox.populationCreator(n=POPULATION_SIZE)
@@ -186,11 +194,11 @@ def main():
     def printInfo(individual):
         trace_size = round(individual[0])
         height = round(individual[1])
-        grid_type = ['wins', 'earnings'][round(individual[2])]
-        operation_type = ['W-L', 'W/L', 'W/T', 'cW/L'][round(individual[3])]
-        alpha_plus = individual[4]
-        alpha_minus = individual[5]
-        eliminate_noise_thold = individual[6]      
+        grid_type = 'wins'
+        operation_type = 'W/L'
+        alpha_plus = 1
+        alpha_minus = 1
+        eliminate_noise_thold = individual[2]      
         width = trace_size
 
         if operation_type == 'W-L':
@@ -209,12 +217,9 @@ def main():
         return info
 
 
-    if METRIC_TO_OPTIMIZE.split('_')[-1] == 'above':
-        hof.items[0][5] = 5
-    elif METRIC_TO_OPTIMIZE.split('_')[-1] == 'below':
-        hof.items[0][4] = 5
-
     last_n_days_info = printInfo(hof.items[0]) 
+    individual_val_acc = hof.items[0].val_acc
+
 
     to_export = {}
     for key in convertParams(hof.items[0]):
@@ -229,33 +234,32 @@ def main():
 
 
     to_export["val_"+ METRIC_TO_OPTIMIZE] = hof.items[0].fitness.values[0]
+    to_export["val_acc"] = individual_val_acc
     
+    print("individual_val_acc = ", individual_val_acc)
     # extract statistics:
     maxFitnessValues, meanFitnessValues = logbook.select("max", "avg")
 
-    with open("preloaded_params/" +stock + ".json", "w") as file:
+    with open("improved_params/" +stock + ".json", "w") as file:
         json.dump(to_export, file,  indent=4)
     
-    # plot statistics:
-    sns.set_style("whitegrid")
-    plt.plot(maxFitnessValues, color='red')
-    plt.plot(meanFitnessValues, color='green')
-    plt.xlabel('Generation')
-    plt.ylabel('Max / Average Fitness')
-    plt.title('Max and Average fitness over Generations')
-    plt.savefig('generations_performance_plot.png')
-    plt.show()
+    # # plot statistics:
+    # sns.set_style("whitegrid")
+    # plt.plot(maxFitnessValues, color='red')
+    # plt.plot(meanFitnessValues, color='green')
+    # plt.xlabel('Generation')
+    # plt.ylabel('Max / Average Fitness')
+    # plt.title('Max and Average fitness over Generations')
+    # plt.savefig('generations_performance_plot.png')
+    # plt.show()
 
     return to_export
 
 if __name__ == "__main__":
     API_KEY = 'MDT9LRDR9TIZGJLH'
     TEST_SIZE = 365
-    stock = 'ACU'
-    ts = TimeSeries(key=API_KEY, output_format='pandas')
-    data, meta_data = ts.get_daily(symbol=stock, outputsize='full')
-    close = data['4. close'].to_numpy()
-    all_days = close[TEST_SIZE:]
+    # stock = 'AEHR'
+    
 
 
     
@@ -264,4 +268,12 @@ if __name__ == "__main__":
     # kf = KFold(n_splits=n_splits)
     kf = TimeSeriesSplit(n_splits)
 
-    hof = main()
+    symbol_list = ['SPY', 'ACU', 'AHPI', 'ALOT', 'AMHC', 'BSQR', 'CLWT', 'CSPI', 'CTIB', 'DAIO', 'DGICB', 'EDAP', 'ELTK', 'FONR', 'HSKA', 'ICCC', 'IMH', 'INOD', 'INS', 'ISIG', 'KTCC', 'LAKE', 'LPTH', 'MGF', 'MSON', 'NATH', 'NOM']
+
+    for stock in symbol_list:
+        ts = TimeSeries(key=API_KEY, output_format='pandas')
+        data, meta_data = ts.get_daily(symbol=stock, outputsize='full')
+        close = data['4. close'].to_numpy()
+        all_days = close[TEST_SIZE:]
+
+        main(stock)
